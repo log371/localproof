@@ -1,0 +1,60 @@
+name: localproof
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: localproof
+      POSTGRES_USER: localproof
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U localproof -d localproof"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://localproof:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db/localproof
+      LOCALPROOF_TOKEN: ${LOCALPROOF_TOKEN:?Set LOCALPROOF_TOKEN}
+    depends_on:
+      db: {condition: service_healthy}
+    networks: [backend]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+  worker:
+    build: .
+    command: ["localproof", "worker"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://localproof:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db/localproof
+      OLLAMA_URL: http://host.docker.internal:11434
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on:
+      db: {condition: service_healthy}
+    networks: [backend, inference]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+  web:
+    build: ./web
+    ports: ["127.0.0.1:3080:8080"]
+    depends_on: [api]
+    networks: [backend, ingress]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+volumes:
+  pgdata:
+networks:
+  backend: {internal: true}
+  inference: {}
+  ingress: {}
